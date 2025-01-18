@@ -15,22 +15,6 @@ local LocalPlayerData = {CollectedCoins = {}, LastCFrame}
 local SilentAim = {CurrentPrediction = Vector3.zero}
 local Map = {CurrentMap, CurrentGun}
 
-local PartHolder = Instance.new("Folder", Workspace)
-local PredictionVisualizer = Instance.new("Part", PartHolder)
-PredictionVisualizer.Size = Vector3.new(.5, .5, .5)
-PredictionVisualizer.Shape = Enum.PartType.Ball
-PredictionVisualizer.Anchored = true
-PredictionVisualizer.CanCollide = false
-PredictionVisualizer.CastShadow = false
-PredictionVisualizer.Massless = true
-PredictionVisualizer.Position = Vector3.zero
-local Highlight = Instance.new("Highlight", PredictionVisualizer)
-Highlight.Adornee = PredictionBox
-Highlight.FillTransparency = 0
-Highlight.FillColor = Color3.new(1, 0, 0)
-Highlight.OutlineTransparency = 0.5
-Highlight.Enabled = false
-
 local function Notify(Title, Message, Time)
     StarterGui:SetCore("SendNotification", (type(Title) == "string") and {Title = Title, Text = Message, Duration = Time or 5} or Title)
 end
@@ -43,10 +27,10 @@ local function RandomStrings()
 	return table.concat(Array)
 end
 
-if _G.MurderMystery2ScriptNoGui then
+if _G.capy then
     return Notify("Already Loaded", "re join lil bro")
 else
-    _G.MurderMystery2ScriptNoGui = true
+    _G.capy = true
 end
 
 local VisualGUI = Instance.new("ScreenGui", HiddenUI)
@@ -207,7 +191,6 @@ function Roles:UpdateRole()
 	end
 end
 
--- Rays --
 local Rays = {}
 
 function Rays:GetPrediction(Type)
@@ -353,9 +336,6 @@ function Visual:NEsp(Adornee, Parent, Color3, Text)
 		if not Adornee.Parent then BillboardGui:Destroy() end
 	end)
 end
-
--- MAIN --
-PartHolder.Name, PredictionVisualizer.Name, Highlight.Name = RandomStrings(), RandomStrings(), RandomStrings()
 
 for _, Player in pairs(Players:GetPlayers()) do
     if Player ~= LocalPlayer then Visual.ApplyVisuals(Player) end
@@ -550,7 +530,6 @@ RunService.RenderStepped:Connect(function()
 				SilentAim.CurrentPrediction = Rays:GetPrediction("Knife") or SilentAim.CurrentPrediction
 			end
 
-			PredictionVisualizer.Position = SilentAim.CurrentPrediction
         end
     end
 end)
