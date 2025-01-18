@@ -1,0 +1,860 @@
+local cloneref = cloneref or function(o) return o end
+local Players = cloneref(game:GetService("Players"))
+local LocalPlayer = Players.LocalPlayer
+local PlayerScripts = cloneref(LocalPlayer:FindFirstChildOfClass("PlayerScripts"))
+local HiddenUI = cloneref(gethui() or game:GetService("CoreGui"))
+local StarterGui = cloneref(game:GetService("StarterGui"))
+local Workspace = cloneref(game:GetService("Workspace"))
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local CollectionService = cloneref(game:GetService("CollectionService"))
+local RunService = cloneref(game:GetService("RunService"))
+local RawMetatable = getrawmetatable(game)
+local OldNameCall = RawMetatable.__namecall
+
+local LocalPlayerData = {CollectedCoins = {}, LastCFrame}
+local SilentAim = {CurrentPrediction = Vector3.zero}
+local Map = {CurrentMap, CurrentGun}
+
+local PartHolder = Instance.new("Folder", Workspace)
+local PredictionVisualizer = Instance.new("Part", PartHolder)
+PredictionVisualizer.Size = Vector3.new(.5, .5, .5)
+PredictionVisualizer.Shape = Enum.PartType.Ball
+PredictionVisualizer.Anchored = true
+PredictionVisualizer.CanCollide = false
+PredictionVisualizer.CastShadow = false
+PredictionVisualizer.Massless = true
+PredictionVisualizer.Position = Vector3.zero
+local Highlight = Instance.new("Highlight", PredictionVisualizer)
+Highlight.Adornee = PredictionBox
+Highlight.FillTransparency = 0
+Highlight.FillColor = Color3.new(1, 0, 0)
+Highlight.OutlineTransparency = 0.5
+Highlight.Enabled = false
+
+local function Notify(Title, Message, Time)
+    StarterGui:SetCore("SendNotification", (type(Title) == "string") and {Title = Title, Text = Message, Duration = Time or 5} or Title)
+end
+
+local function RandomStrings()
+	local Length, Array = math.random(10, 20), {}
+	for i = 1, Length do
+		Array[i] = string.char(math.random(32, 126))
+	end
+	return table.concat(Array)
+end
+
+if _G.MurderMystery2ScriptNoGui then
+    return Notify("Already Loaded", "re join lil bro")
+else
+    _G.MurderMystery2ScriptNoGui = true
+end
+
+local VisualGUI = Instance.new("ScreenGui", HiddenUI)
+VisualGUI.Name, VisualGUI.DisplayOrder, VisualGUI.ResetOnSpawn = RandomStrings(), 999999999, false
+
+local VisualHolder = Instance.new("Folder", VisualGUI)
+VisualHolder.Name = "VisualHolder"
+
+local EspHolder = Instance.new("Folder", VisualHolder)
+EspHolder.Name = "Esp"
+
+local GunHolder, PlayerHolder = Instance.new("Folder", EspHolder), Instance.new("Folder", EspHolder)
+GunHolder.Name, PlayerHolder.Name = "Gun", "Player"
+
+local NameHolder, ChamHolder = Instance.new("Folder", PlayerHolder), Instance.new("Folder", PlayerHolder)
+NameHolder.Name, ChamHolder.Name = "Name", "Cham"
+
+-- Colors --
+local Colors = {}
+
+function Colors:GetColor(Object, Type)
+	local ColorTable = {
+		Innocent = {
+			Solid = Color3.new(0, 255, 0),
+			Cham = Color3.fromRGB(75, 151, 75),
+			ESP = Color3.fromRGB(75, 255, 75)
+		},
+		Murderer = {
+			Solid = Color3.new(255, 0, 0),
+			Cham = Color3.fromRGB(196, 40, 28),
+			ESP = Color3.fromRGB(255, 40, 29)
+		},
+		Sheriff = {
+			Solid = Color3.new(0, 0, 255),
+			Cham = Color3.fromRGB(98, 37, 209),
+			ESP = Color3.fromRGB(75, 75, 255)
+		},
+		Hero = {
+			Solid = Color3.new(255, 255, 0),
+			Cham = Color3.fromRGB(245, 205, 48),
+			ESP = Color3.fromRGB(245, 205, 48)
+		},
+		Gun = {
+			Cham = Color3.fromRGB(255, 0, 255),
+			ESP = Color3.fromRGB(255, 0, 255)
+		}
+	}
+
+	return Object and Type and ColorTable[Object][Type] or Object and not Type and ColorTable[Object] or ColorTable or nil
+end
+
+-- Roles --
+local Roles = {RoleTable = {}, Murderers = {}, Sheriffs = {}, Hero, GameMode}
+
+function Roles:IsAlive(Player)
+	for Name, Data in pairs(self.RoleTable or {}) do
+		if Player.Name == Name then return not Data.Dead end
+	end
+	return false
+end
+
+function Roles:FindWeapon(WeaponName, Player, GetInstance)
+	local FinalResult = nil
+	pcall(function()
+		if not (WeaponName and Player) then return end
+		local function CheckWeapon(Weapon, IsLocal)
+			if not (Weapon and Weapon:IsA("Tool")) then return end
+			if Weapon.Name == "Gun" then
+				local Handle, IsGun, KnifeServer, KnifeLocal = Weapon:FindFirstChild("Handle"), Weapon:FindFirstChild("IsGun"), Weapon:FindFirstChild("KnifeServer"), Weapon:FindFirstChild("KnifeLocal")
+				if not (Handle and IsGun and KnifeServer and KnifeLocal) then return end
+				local ShootGun = IsLocal and KnifeLocal:FindFirstChild("CreateBeam") and KnifeLocal.CreateBeam.RemoteFunction or KnifeServer:FindFirstChild("ShootGun")
+	
+				return ShootGun and (GetInstance and {KnifeServer = KnifeServer, KnifeLocal = KnifeLocal, ShootGun = ShootGun, Handle = Handle} or true)
+			elseif Weapon.Name == "Knife" then
+				local Handle, KnifeServer, Stab, Throw = Weapon:FindFirstChild("Handle"), Weapon:FindFirstChild("KnifeServer"), Weapon:FindFirstChild("Stab"), Weapon:FindFirstChild("Throw")
+				if not (Handle and KnifeServer and Stab and Throw) then return end
+	
+				return GetInstance and {KnifeServer = KnifeServer, Stab = Stab, Throw = Throw, Handle = Handle} or true
+			end
+		end
+	
+		local Parents = {Player.Character, Player:FindFirstChildOfClass("Backpack")}
+		for _, Parent in pairs(Parents) do
+			if Parent then
+				local Weapon = Parent:FindFirstChild(WeaponName)
+				local Result = Weapon and CheckWeapon(Weapon, Player == LocalPlayer)
+				if Result then FinalResult = Result end
+			end
+		end
+	end)
+
+	return FinalResult
+end
+
+function Roles:ShootPlayerGun(Player, Args)
+	local IsBreakGun = (Args and Args[2] == Vector2.zero)
+	if not (Player and Args) then return end
+
+	local Gun = Roles:FindWeapon("Gun", Player, true)
+	local ShootGun = Gun and (IsBreakGun or Gun.Handle.Parent.Parent:IsA("Model")) and Gun.ShootGun
+	if not ShootGun then return end
+
+	task.spawn(function() pcall(function() ShootGun:InvokeServer(unpack(Args)) end) end)
+end
+
+function Roles:UpdateRole()
+	local GetPlayerData = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Extras") and ReplicatedStorage.Remotes.Extras:FindFirstChild("GetPlayerData", true)
+	if not GetPlayerData then return end
+
+	pcall(function()
+		self.RoleTable, self.CanGetRoles = GetPlayerData:InvokeServer(), true
+	end)
+
+	local function UpdateVisual(PlayerName, Role)
+		local TextLabel = NameHolder:FindFirstChild(PlayerName) and NameHolder[PlayerName]:FindFirstChildOfClass("BillboardGui") and NameHolder[PlayerName]:FindFirstChildOfClass("BillboardGui"):FindFirstChild(PlayerName)
+		if TextLabel then
+			TextLabel.TextColor3 = Colors:GetColor(Role, "ESP")
+		end
+
+		local ChamFolder = ChamHolder:FindFirstChild(PlayerName.."_CHM")
+		if ChamFolder then
+			for _, Cham in pairs(ChamFolder:GetChildren()) do
+				Cham.Color3 = Colors:GetColor(Role, "Cham")
+			end
+		end
+	end
+
+	for Name, Data in pairs(self.RoleTable or Players:GetPlayers()) do
+		local ThePlayer = self.RoleTable and Players:FindFirstChild(Name) or (not self.RoleTable and Data)
+		if ThePlayer then
+			if (self.RoleTable and Data.Role == "Murderer" and self:IsAlive(ThePlayer)) or (not self.RoleTable and self:FindWeapon("Knife", ThePlayer, false)) then
+				if not table.find(self.Murderers, ThePlayer.Name) then table.insert(self.Murderers, ThePlayer.Name) end
+				if ThePlayer ~= LocalPlayer then UpdateVisual(ThePlayer.Name, "Murderer") end
+
+			elseif (self.RoleTable and Data.Role == "Sheriff" and self:IsAlive(ThePlayer)) or (not self.RoleTable and self:FindWeapon("Gun", ThePlayer, false)) then
+				if not table.find(self.Sheriffs, ThePlayer.Name) then table.insert(self.Sheriffs, ThePlayer.Name) end
+				if ThePlayer ~= LocalPlayer then UpdateVisual(ThePlayer.Name, "Sheriff") end
+
+			elseif self.RoleTable and Data.Role == "Hero" and self:IsAlive(ThePlayer) and self:FindWeapon("Gun", ThePlayer, false) then
+				self.Hero = ThePlayer.Name
+				if ThePlayer ~= LocalPlayer then UpdateVisual(ThePlayer.Name, "Hero") end
+
+			else
+				for Role, Player in pairs(self) do
+					if tostring(Role) == "Sheriffs" or tostring(Role) == "Murderers" then
+						local Finded = table.find(self[tostring(Role)], ThePlayer.Name)
+						if Finded then table.remove(self[tostring(Role)], Finded) end
+
+					elseif tostring(Role) == "Hero" and Player == ThePlayer.Name then
+						self.Hero = nil
+
+					end
+				end
+
+				if ThePlayer ~= LocalPlayer then UpdateVisual(ThePlayer.Name, "Innocent") end
+			end
+		end
+	end
+end
+
+-- Rays --
+local Rays = {}
+
+function Rays:GetPrediction(Type)
+	local LocalRoot = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart
+	if not LocalRoot then return end
+
+	local function GetClosestPlayer(PlayerList)
+		local ClosestPlayer, ClosestDistance = nil, math.huge
+		for _, Player in pairs(PlayerList or Players:GetPlayers()) do
+			if Player ~= LocalPlayer then
+				local LocalRoot, OtherRoot = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart, Player.Character and Player.Character.PrimaryPart
+				if LocalRoot and OtherRoot then
+					local Distance = (LocalRoot.Position - OtherRoot.Position).Magnitude
+					if Distance < ClosestDistance then
+						ClosestPlayer, ClosestDistance = Player, Distance
+					end
+				end
+			end
+		end
+
+		return ClosestPlayer
+	end
+
+	local Result
+
+	if Type == "Gun" then
+		local Murderers = {}
+		for _, v in pairs(Roles.Murderers) do
+			local ThePlayer = Players:FindFirstChild(v)
+			if ThePlayer then table.insert(Murderers, ThePlayer) end
+		end
+
+		local Murderer = GetClosestPlayer(Murderers)
+		if Murderer then
+			local MurdererRoot = Murderer.Character and Murderer.Character.PrimaryPart
+			if MurdererRoot then
+				local MurdererVelocity = MurdererRoot.AssemblyLinearVelocity
+				Result = MurdererRoot.Position + ( MurdererVelocity * Vector3.new(1, 0, 1) * (math.random(22, 26) / 100) + Vector3.new(0, MurdererVelocity.Y * (math.random(40, 60) / 1000), 0) )
+			end
+		end
+
+	elseif Type == "Knife" then
+		local Target = GetClosestPlayer()
+		if Target then
+			local TargetRoot = Target.Character and Target.Character.PrimaryPart
+			if TargetRoot then
+				local TargetVelocity = TargetRoot.AssemblyLinearVelocity
+				Result = TargetRoot.Position + ( TargetVelocity * Vector3.new(1, 0, 1) * (math.random(30, 60) / 100) * ((LocalRoot.Position - TargetRoot.Position).Magnitude / math.random(25, 28)) + Vector3.new(0, TargetVelocity.Y * (math.random(40, 60) / 1000), 0) )
+			end
+		end
+	end
+
+	return Result
+end
+
+-- Visuals --
+local Visual = {Transparency = .8}
+
+function Visual.ApplyVisuals(Player)
+	task.spawn(function()
+		local ChamFolder = Instance.new("Folder", ChamHolder)
+		ChamFolder.Name = Player.Name .. "_CHM"
+	
+		repeat task.wait() until Player.Character and Player.Character:FindFirstChildOfClass("Humanoid") and Player.Character.Humanoid.RootPart and Player.Character:FindFirstChild("Head") or not Player
+		if not Player then return end
+		local Character = Player.Character
+		local Head = Character.Head
+
+		local NameFolder = Instance.new("Folder", NameHolder)
+		NameFolder.Name = Player.Name
+		local BillboardGui = Instance.new("BillboardGui", NameFolder)
+		BillboardGui.Adornee = Head
+		BillboardGui.Name = Head.Name
+		BillboardGui.Size = UDim2.new(0, 100, 0, 150)
+		BillboardGui.StudsOffset = Vector3.new(0, 1, 0)
+		BillboardGui.AlwaysOnTop = true
+	
+		local TextLabel = Instance.new("TextLabel", BillboardGui)
+		TextLabel.BackgroundTransparency = 1
+		TextLabel.Position = UDim2.new(0, 0, 0, -50)
+		TextLabel.Size = UDim2.new(0, 100, 0, 100)
+		TextLabel.Font = Enum.Font.Gotham
+		TextLabel.TextSize = 15
+		TextLabel.TextColor3 = Colors:GetColor("Innocent", "ESP")
+		TextLabel.TextStrokeTransparency = 0
+		TextLabel.TextYAlignment = Enum.TextYAlignment.Bottom
+		TextLabel.Text = Player.Name
+		TextLabel.ZIndex = 0
+		TextLabel.Name = Player.Name
+	
+		for _, Part in pairs(Character:GetChildren()) do
+			if Part:IsA("BasePart") and Part.Name ~= ("Radio" and "HumanoidRootPart") then
+				local Adornment = Instance.new("BoxHandleAdornment", ChamFolder)
+				Adornment.Name = Part.Name
+				Adornment.Adornee = Part
+				Adornment.AlwaysOnTop = true
+				Adornment.ZIndex = 0
+				Adornment.Size = Part.Size
+				Adornment.Transparency = Visual.Transparency
+				Adornment.Color3 = Colors:GetColor("Innocent", "Cham")
+			end
+		end
+	end)
+end
+
+function Visual:PEsp(Adornee, Parent, Color3)
+	local Adornment = Instance.new("BoxHandleAdornment", Parent)
+	Adornment.Name = Adornee.Name.."_PESP"
+	Adornment.Adornee = Adornee
+	Adornment.AlwaysOnTop = true
+	Adornment.ZIndex = 0
+	Adornment.Size = Adornee.Size
+	Adornment.Transparency = Visual.Transparency
+	Adornment.Color3 = Color3
+
+	local Connection
+	Connection = Adornee.Changed:Connect(function()
+		if not Adornee.Parent then Adornment:Destroy() end
+	end)
+end
+
+function Visual:NEsp(Adornee, Parent, Color3, Text)
+	local BillboardGui = Instance.new("BillboardGui", Parent)
+	BillboardGui.Adornee = Adornee
+	BillboardGui.Name = Adornee.Name.."_NESP"
+	BillboardGui.Size = UDim2.new(0, 100, 0, 150)
+	BillboardGui.StudsOffset = Vector3.new(0, 1, 0)
+	BillboardGui.AlwaysOnTop = true
+	local TextLabel = Instance.new("TextLabel", BillboardGui)
+	TextLabel.BackgroundTransparency = 1
+	TextLabel.Position = UDim2.new(0, 0, 0, -50)
+	TextLabel.Size = UDim2.new(0, 100, 0, 100)
+	TextLabel.Font = Enum.Font.Gotham
+	TextLabel.TextSize = 15
+	TextLabel.TextColor3 = Color3
+	TextLabel.TextStrokeTransparency = 0
+	TextLabel.TextYAlignment = Enum.TextYAlignment.Bottom
+	TextLabel.Text = Text
+	TextLabel.ZIndex = 0
+
+	local Connection
+	Connection = Adornee.Changed:Connect(function()
+		if not Adornee.Parent then BillboardGui:Destroy() end
+	end)
+end
+
+-- MAIN --
+PartHolder.Name, PredictionVisualizer.Name, Highlight.Name = RandomStrings(), RandomStrings(), RandomStrings()
+
+for _, Player in pairs(Players:GetPlayers()) do
+    if Player ~= LocalPlayer then Visual.ApplyVisuals(Player) end
+end
+
+Players.PlayerAdded:Connect(Visual.ApplyVisuals)
+
+Players.PlayerRemoving:Connect(function(Player)
+	if Player ~= LocalPlayer then
+		for Role, ThePlayer in pairs(Roles) do
+			if tostring(Role) == "Sheriffs" or tostring(Role) == "Murderers" then
+				local Finded = table.find(Roles[tostring(Role)], Player.Name)
+				if Finded then table.remove(Roles[tostring(Role)], Finded) end
+			elseif tostring(Role) == "Hero" and ThePlayer == Player.Name then
+				Roles.Hero = nil
+			end
+		end
+
+		local PlayerVisuals = {NameHolder:FindFirstChild(Player.Name), ChamHolder:FindFirstChild(Player.Name.."_CHM")}
+		for _, Visual in pairs(PlayerVisuals) do
+			if Visual then Visual:Destroy() end
+		end
+	end
+end)
+
+task.spawn(function()
+    while task.wait(1) do
+		task.spawn(function() Roles:UpdateRole() end)
+
+		for _, Player in pairs(Players:GetPlayers()) do
+			if Player ~= LocalPlayer then
+				local OtherCharacter = Player.Character
+				local OtherRoot = OtherCharacter and OtherCharacter.PrimaryPart
+				if OtherCharacter and OtherRoot then
+					local IsAlive = Roles:IsAlive(Player)
+
+					local BillboardGui = NameHolder:FindFirstChild(Player.Name) and NameHolder[Player.Name]:FindFirstChildOfClass("BillboardGui")
+					if BillboardGui then
+						local Head = OtherCharacter:FindFirstChild(BillboardGui.Name)
+						BillboardGui.Enabled = Head and IsAlive
+						BillboardGui.Adornee = IsAlive and Head or nil
+					end
+
+					local ChamFolder = ChamHolder:FindFirstChild(Player.Name.."_CHM")
+					if ChamFolder then
+						for _, Cham in pairs(ChamFolder:GetChildren()) do
+							local Object = OtherCharacter:FindFirstChild(Cham.Name)
+							Cham.Visible = Object and IsAlive or false
+							Cham.Transparency = Visual.Transparency
+							Cham.Adornee = IsAlive and Object or nil
+							Cham.Size = IsAlive and Object and Object.Size or Vector3.zero
+						end
+					end
+	
+					if Roles:FindWeapon("Gun", Player, false) then
+						local Random = math.random(0, 10)
+						local Result = (OtherRoot.Position + Vector3.new(Random * math.random(-1, 1), Random * math.random(-1, 1), Random * math.random(-1, 1)))
+						Roles:ShootPlayerGun(Player, {[1] = 1, [2] = table.find(Roles.Murderers, LocalPlayer.Name) and Vector2.zero or Vector3.new(Random, Random, Random), [3] = "AH2"})
+					end
+				end
+			end
+		end
+
+		local Objects = {"CoinVisual", "ChromaDecal", "ChromaFire", "ChromaPart"}
+		for _, Object in pairs(Objects) do
+			for _, Instance in pairs(CollectionService:GetTagged(Object)) do
+				if Object:lower():find("chroma") then
+					Instance:Destroy()
+				elseif Object == "CoinVisual" then
+					local Parent = Instance.Parent
+					if Parent then
+						if Instance:GetAttribute("Collected") or Instance:GetAttribute("RoundEnd") or (table.find(LocalPlayerData.CollectedCoins, Instance:GetAttribute("CoinID")) and LocalPlayerData.CollectedCoins[Instance:GetAttribute("CoinID")].IsFull) then
+							Parent:Destroy()
+						else
+							Instance.CFrame *= CFrame.Angles(0, math.rad(45), 0)
+							Parent.Size = Vector3.new(10, 10, 10)
+						end
+					end
+
+				end
+			end
+		end
+
+		local function GetMap()
+			for _, Child in pairs(Workspace:GetChildren()) do
+				local Spawns, CoinContainer = Child:FindFirstChild("Spawns"), Child:FindFirstChild("CoinAreas") or Child:FindFirstChild("CoinContainer")
+				if Child:IsA("Model") and not Players:GetPlayerFromCharacter(Child) and Spawns and CoinContainer then return {Map = Child, Spawns = Spawns, CoinContainer = CoinContainer} end
+			end
+			return
+		end
+
+        if not Map.CurrentMap then
+			local CurrentMap = GetMap()
+			if CurrentMap then
+				Map.CurrentMap = CurrentMap
+
+				local function CheckGun(Child)
+                    if Child:IsA("BasePart") and Child.Name == "GunDrop" then
+                        Map.CurrentGun = Child
+                        Visual:PEsp(Child, GunHolder, Colors:GetColor("Gun", "Cham"))
+                        Visual:NEsp(Child, GunHolder, Colors:GetColor("Gun", "ESP"), "Gun")
+                        Child.Size = Vector3.new(10, 10, 10)
+                        
+                        local GunConnection
+                        GunConnection = Child.Changed:Connect(function()
+                            if not Child.Parent then
+								Map.CurrentGun = nil
+								GunConnection:Disconnect()
+							end
+                        end)
+                    end
+                end
+            
+                for _, Child in pairs(CurrentMap.Map:GetChildren()) do
+                    CheckGun(Child)
+                end
+                CurrentMap.Map.ChildAdded:Connect(CheckGun)
+
+				local Connection
+				Connection = CurrentMap.Map.Changed:Connect(function()
+					if not CurrentMap.Map.Parent then
+						Map.CurrentMap, LocalPlayerData.CollectedCoins, Roles.RoleTable, Roles.Murderers, Roles.Sheriffs, Roles.Hero = nil, {}, nil, {}, {}, nil
+						Connection:Disconnect()
+					end
+				end)
+			end
+		end
+
+        local Character = LocalPlayer.Character
+		if Character then
+			local Knife = Roles:FindWeapon("Knife", LocalPlayer, true)
+			if Knife and Knife.Handle then
+				local Handle = Knife.Handle
+				Handle.Massless, Handle.Anchored, Handle.CanCollide, Handle.Size = true, false, false, Vector3.new(5, 5, 5)
+			end
+
+			local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+            if Humanoid then
+				Humanoid.WalkSpeed = 18
+				Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+			end
+		end
+    end
+end)
+
+-- Stepped --
+RunService.RenderStepped:Connect(function()
+    local Character = LocalPlayer.Character
+    if Character then
+		local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+		local LocalRoot = Humanoid and Humanoid.RootPart
+
+        if Humanoid and LocalRoot then
+            if LocalRoot.Position.Y <= Workspace.FallenPartsDestroyHeight + 100 then
+                local Spawn = Map.CurrentMap and Map.CurrentMap.Spawns:GetChildren()[1] or (Workspace:FindFirstChild("Lobby") and Workspace.Lobby:FindFirstChild("Spawns") and Workspace.Lobby.Spawns:GetChildren()[1]) or (LocalRoot.Position + Vector3.new(0, 5, 0))
+                LocalRoot.CFrame = CFrame.new(Spawn.Position + Vector3.new(0, Spawn.Position.Y + Character:GetExtentsSize().Y * .5, 0))
+				Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+
+			for _, Tool in pairs(Character:GetChildren()) do
+				if Tool:IsA("Tool") then
+					local Handle = Tool:FindFirstChild("Handle")
+					if Handle then Handle.Massless = true end
+				end
+			end
+
+            if (LocalRoot.AssemblyAngularVelocity.Magnitude > 150 or LocalRoot.AssemblyLinearVelocity.Magnitude > 250) then
+                if LocalPlayerData.LastCFrame then
+                    LocalRoot.AssemblyLinearVelocity, LocalRoot.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+                    LocalRoot.CFrame = LocalPlayerData.LastCFrame
+					Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            else
+                LocalPlayerData.LastCFrame = LocalRoot.CFrame
+            end
+
+            for _, Player in pairs(Players:GetPlayers()) do
+                if Player ~= LocalPlayer then
+                    local OtherRoot = Player.Character and Player.Character.PrimaryPart
+                    if OtherRoot and (OtherRoot.AssemblyAngularVelocity.Magnitude > 150 or OtherRoot.AssemblyLinearVelocity.Magnitude > 250) then
+                        OtherRoot.AssemblyLinearVelocity, OtherRoot.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+                        for _, Childs in pairs(OtherRoot.Parent:GetDescendants()) do
+                            if Childs:IsA("BasePart") then Childs.CanCollide = false end
+                        end
+                    end
+                end
+            end
+
+			if table.find(Roles.Sheriffs, LocalPlayer.Name) or Roles.Hero == LocalPlayer.Name then
+				SilentAim.CurrentPrediction = Rays:GetPrediction("Gun") or SilentAim.CurrentPrediction
+			elseif table.find(Roles.Murderers, LocalPlayer.Name) then
+				SilentAim.CurrentPrediction = Rays:GetPrediction("Knife") or SilentAim.CurrentPrediction
+			end
+
+			PredictionVisualizer.Position = SilentAim.CurrentPrediction
+        end
+    end
+end)
+
+-- Heartbeat --
+RunService.Heartbeat:Connect(function()
+	local LocalRoot = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart
+	if LocalRoot then
+        if LocalRoot then
+            local LastVelocity = LocalRoot.AssemblyLinearVelocity
+            LocalRoot.AssemblyLinearVelocity = Vector3.new(0, -100, 0)
+            RunService.RenderStepped:Wait()
+            LocalRoot.AssemblyLinearVelocity = LastVelocity
+        end
+	end
+end)
+
+-- Silent Aim --
+setreadonly(RawMetatable, false)
+
+RawMetatable.__namecall = newcclosure(function(Object, ...)
+    local NamecallMethod = getnamecallmethod()
+    local Arguments = {...}
+
+    if NamecallMethod == "FireServer" and tostring(Object) == "Throw" then
+		local Success, Error = pcall(function()
+			Arguments[1] = CFrame.new(SilentAim.CurrentPrediction)
+		end)
+		if Error then warn("Error! :",Error) end
+
+    elseif NamecallMethod == "InvokeServer" and tostring(Object) == "RemoteFunction" then
+		local Success, Error = pcall(function()
+			Arguments[2] = SilentAim.CurrentPrediction
+		end)
+		if Error then warn("Error! :",Error) end
+
+    end
+
+    return OldNameCall(Object, unpack(Arguments))
+end)
+
+setreadonly(RawMetatable, true)
+
+-- Anti Lag --
+task.spawn(function()
+	for _, Player in pairs(Players:GetPlayers()) do
+		for _, WeaponName in pairs({"Gun", "Knife"}) do
+			local Weapon = Roles:FindWeapon(WeaponName, Player, true)
+			if Weapon then
+				local GameMode = Weapon.KnifeServer:FindFirstChild("GameMode")
+				if GameMode and GameMode:IsA("StringValue") then
+					Roles.GameMode = GameMode.Value
+					break
+				end
+			end
+		end
+	end
+
+	local Scripts = {"CoinVisualizer", PlayerScripts:FindFirstChild("WeaponVisuals") and PlayerScripts.WeaponVisuals:FindFirstChild("ChromaScript")}
+	for _, Script in pairs(Scripts) do
+		local LocalScript = PlayerScripts and (tostring(Script) and PlayerScripts:FindFirstChild(Script) or Script)
+		if LocalScript then LocalScript:Destroy() end
+	end	
+
+    local Folders = {"Footsteps"}
+
+	for _, Folder in pairs(Workspace:GetChildren()) do
+		if table.find(Folders, Folder.Name) and Folder:IsA("Folder") then
+			Folder:Destroy()
+		end
+	end
+
+    Workspace.ChildAdded:Connect(function(Child)
+        if Child.Name == "Footsteps" and Child:IsA("Folder") then
+			task.wait()
+			Child:Destroy()
+        end
+    end)
+
+    local RemotesName = {"CoinsStarted", "CoinCollected", "LoadingMap"}
+	local GamePlay = ReplicatedStorage:WaitForChild("Remotes") and ReplicatedStorage.Remotes:WaitForChild("Gameplay")
+	if GamePlay then
+		for _, Remote in pairs(RemotesName) do
+			local TheRemote = GamePlay:WaitForChild(Remote)
+			if TheRemote then
+				if Remote == "CoinsStarted" then
+					TheRemote.OnClientEvent:Connect(function()
+						LocalPlayerData.CollectedCoins = {}
+					end)
+
+				elseif Remote == "CoinCollected" then
+					TheRemote.OnClientEvent:Connect(function(...)
+						local Args = {...}
+						local CoinType, CoinCollected, CoinBagLimit = Args[1], Args[2], Args[3]
+						if not table.find(LocalPlayerData.CollectedCoins, CoinType) then table.insert(LocalPlayerData.CollectedCoins, CoinType) end
+						LocalPlayerData.CollectedCoins[CoinType] = {IsFull = false, Limit = CoinBagLimit}
+
+						if CoinBagLimit == CoinCollected then
+							LocalPlayerData.CollectedCoins[CoinType] = {IsFull = true, Limit = CoinBagLimit}
+							for _, CoinVisual in pairs(CollectionService:GetTagged("CoinVisual")) do
+								if CoinVisual:GetAttribute("CoinID") == CoinType and CoinVisual.Parent then
+									CoinVisual.Parent:Destroy()
+								end
+							end
+						end
+					end)
+
+				elseif Remote == "LoadingMap" then
+					TheRemote.OnClientEvent:Connect(function(...)
+						local Args = {...}
+						local GameMode = Args[1]
+						Roles.GameMode = GameMode
+				-- Notify("Game Started", "GameMode is "..Roles.GameMode, 5)
+					end)
+
+				end
+			end
+		end
+	end
+end)
+
+local coreGui = game:GetService("CoreGui")
+local existingGui = coreGui:FindFirstChild("TPGUN")
+local player = game.Players.LocalPlayer
+
+if existingGui then
+    existingGui:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "TPGUN"
+screenGui.Parent = coreGui
+
+local button = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+local clickSound = Instance.new("Sound")
+
+button.Name = "TPGUNButton"
+button.Text = "TP Gun"
+button.Size = UDim2.new(0, 60, 0, 50)
+button.Position = UDim2.new(1, -220, 0, 10)
+button.Parent = screenGui
+button.BackgroundTransparency = 0.7
+button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 14
+button.Draggable = true
+
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = button
+
+clickSound.SoundId = "rbxassetid://1673280232"
+clickSound.Parent = button
+
+local function sendNotification(title, text, duration)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 3,
+        })
+    end)
+end
+
+local function teleportToDroppedGun()
+    clickSound:Play()
+
+    local character = player.Character or player.CharacterAdded:Wait()
+    local gunDrop = workspace:FindFirstChild("GunDrop", true)
+
+    if gunDrop and character and character.PrimaryPart then
+        local belowGunPosition = gunDrop.CFrame * CFrame.new(0, -1, 0)
+        local originalPosition = character.PrimaryPart.CFrame
+
+        character:SetPrimaryPartCFrame(belowGunPosition)
+        task.wait(0.02)
+        character:SetPrimaryPartCFrame(originalPosition)
+
+        sendNotification("Success", "Action completed.")
+    else
+        sendNotification("Failed", "Action could not be completed.")
+    end
+end
+
+button.MouseButton1Click:Connect(teleportToDroppedGun)
+
+local function monitorGunDrops()
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "GunDrop" then
+            sendNotification("Notice", "An item is available.")
+        end
+    end)
+end
+
+monitorGunDrops()
+
+local state = false
+local player = game.Players.LocalPlayer
+local coreGui = game:GetService("CoreGui")
+local existingGui = coreGui:FindFirstChild("TimerGui")
+
+local screenGui, timertext
+
+local function createGui()
+    if not coreGui:FindFirstChild("TimerGui") then
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "TimerGui"
+        screenGui.Parent = coreGui
+
+        timertext = Instance.new("TextLabel")
+        timertext.Parent = screenGui
+        timertext.BackgroundTransparency = 1
+        timertext.TextColor3 = Color3.fromRGB(255, 255, 255)
+        timertext.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        timertext.TextStrokeTransparency = 0
+        timertext.TextScaled = true
+        timertext.AnchorPoint = Vector2.new(0.5, 0.5)
+        timertext.Position = UDim2.new(0.5, 0, 0.1, 0)
+        timertext.Size = UDim2.new(0, 200, 0, 50)
+        timertext.Font = Enum.Font.Montserrat
+        timertext.Text = "0:00"
+    else
+        screenGui = coreGui:FindFirstChild("TimerGui")
+        timertext = screenGui:FindFirstChildOfClass("TextLabel")
+    end
+end
+
+local function secondsToMinutes(seconds)
+    local minutes = math.floor(seconds / 60)
+    local remainingSeconds = seconds % 60
+    return string.format("%d:%02d", minutes, remainingSeconds)
+end
+
+local function updateTextColor(timeLeft)
+    if timeLeft <= 10 then
+        timertext.TextColor3 = Color3.fromRGB(255, 0, 0)
+    else
+        timertext.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+end
+
+local function flashText(repetitions)
+    timertext.Text = "0:00"
+    for i = 1, repetitions do
+        if not state then break end
+        timertext.TextColor3 = Color3.fromRGB(255, 0, 0)
+        task.wait(0.5)
+        timertext.TextColor3 = Color3.fromRGB(255, 255, 255)
+        task.wait(0.5)
+    end
+    timertext.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function updateTimer()
+    while state do
+        local success, timeLeft = pcall(function()
+            return game.ReplicatedStorage.Remotes.Extras.GetTimer:InvokeServer()
+        end)
+
+        if success then
+            timertext.Text = secondsToMinutes(timeLeft)
+            updateTextColor(timeLeft)
+
+            if timeLeft <= 0 then
+                flashText(3)
+                timertext.Text = "0:00"
+
+                repeat
+                    task.wait(1)
+                    success, timeLeft = pcall(function()
+                        return game.ReplicatedStorage.Remotes.Extras.GetTimer:InvokeServer()
+                    end)
+                until timeLeft > 0
+
+                timertext.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+        end
+
+        task.wait(1)
+    end
+end
+
+player.Chatted:Connect(function(message)
+    if message:lower() == "/t" then
+        state = not state
+
+        if state then
+            if not coreGui:FindFirstChild("TimerGui") then
+                createGui()
+                updateTimer()
+            end
+        else
+            if coreGui:FindFirstChild("TimerGui") then
+                coreGui:FindFirstChild("TimerGui"):Destroy()
+            end
+        end
+    end
+end)
+
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "script load",
+    Text = "yes",
+    Duration = 2.5,
+})
+
+warn("no lil bro")
