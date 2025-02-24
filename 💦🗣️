@@ -475,7 +475,7 @@ task.spawn(function()
 			local Humanoid = Character:FindFirstChildOfClass("Humanoid")
             if Humanoid then
 				Humanoid.WalkSpeed = 18
-				Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+				Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
 			end
 		end
     end
